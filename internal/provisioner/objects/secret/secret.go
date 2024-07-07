@@ -73,14 +73,14 @@ func EnsureXDSSecrets(ctx context.Context, cli client.Client, contour *model.Con
 			tlsSecretExists = false
 		}
 
-		if slices.Contains(s.OwnerReferences, ownerReference) {
+		if !slices.Contains(s.OwnerReferences, ownerReference) {
 			continue
 		}
 
 		newS := s.DeepCopy()
 		newS.OwnerReferences = append(newS.OwnerReferences, ownerReference)
 		if err := cli.Patch(ctx, newS, client.MergeFrom(s), &client.PatchOptions{}); err != nil {
-			return err
+			return fmt.Errorf("failed to update secret owner: %w", err)
 		}
 	}
 
