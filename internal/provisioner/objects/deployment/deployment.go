@@ -22,10 +22,12 @@ import (
 
 	apps_v1 "k8s.io/api/apps/v1"
 	core_v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapi_v1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	contour_v1alpha1 "github.com/projectcontour/contour/apis/projectcontour/v1alpha1"
 	"github.com/projectcontour/contour/internal/provisioner/equality"
@@ -54,6 +56,17 @@ const (
 // EnsureDeployment ensures a deployment using image exists for the given contour.
 func EnsureDeployment(ctx context.Context, cli client.Client, contour *model.Contour, image string) error {
 	desired := DesiredDeployment(contour, image)
+	gateway := &gatewayapi_v1.Gateway{}
+	if err := cli.Get(ctx, client.ObjectKey{Namespace: contour.Namespace, Name: contour.Name}, gateway); !errors.IsNotFound(err) {
+		blockOwner := true
+		desired.OwnerReferences = append(desired.OwnerReferences, meta_v1.OwnerReference{
+			APIVersion:         gateway.APIVersion,
+			Kind:               gateway.Kind,
+			Name:               gateway.GetName(),
+			UID:                gateway.GetUID(),
+			BlockOwnerDeletion: &blockOwner,
+		})
+	}
 
 	updater := func(ctx context.Context, cli client.Client, current, desired *apps_v1.Deployment) error {
 		differ := equality.DeploymentSelectorsDiffer(current, desired)
