@@ -57,6 +57,7 @@ const (
 func EnsureDeployment(ctx context.Context, cli client.Client, contour *model.Contour, image string) error {
 	desired := DesiredDeployment(contour, image)
 	gateway := &gatewayapi_v1.Gateway{}
+	// Query gateway if it exists add owner reference
 	if err := cli.Get(ctx, client.ObjectKey{Namespace: contour.Namespace, Name: contour.Name}, gateway); !errors.IsNotFound(err) {
 		blockOwner := true
 		desired.OwnerReferences = append(desired.OwnerReferences, meta_v1.OwnerReference{
