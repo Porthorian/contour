@@ -19,10 +19,12 @@ import (
 	"strings"
 
 	core_v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapi_v1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/projectcontour/contour/internal/provisioner/equality"
 	"github.com/projectcontour/contour/internal/provisioner/labels"
@@ -107,22 +109,49 @@ var InternalLBAnnotations = map[model.LoadBalancerProviderType]map[string]string
 
 // EnsureContourService ensures that a Contour Service exists for the given contour.
 func EnsureContourService(ctx context.Context, cli client.Client, contour *model.Contour) error {
+	des := DesiredContourService(contour)
+	gateway := &gatewayapi_v1.Gateway{}
+	// Query gateway if it exists add owner reference
+	if err := cli.Get(ctx, client.ObjectKey{Namespace: contour.Namespace, Name: contour.Name}, gateway); !errors.IsNotFound(err) {
+		blockOwner := true
+		des.OwnerReferences = append(des.OwnerReferences, meta_v1.OwnerReference{
+			APIVersion:         gateway.APIVersion,
+			Kind:               gateway.Kind,
+			Name:               gateway.GetName(),
+			UID:                gateway.GetUID(),
+			BlockOwnerDeletion: &blockOwner,
+		})
+	}
 	// Enclose contour.
 	updater := func(ctx context.Context, cli client.Client, current, desired *core_v1.Service) error {
 		return updateContourServiceIfNeeded(ctx, cli, contour, current, desired)
 	}
 
-	return objects.EnsureObject(ctx, cli, DesiredContourService(contour), updater, &core_v1.Service{})
+	return objects.EnsureObject(ctx, cli, des, updater, &core_v1.Service{})
 }
 
 // EnsureEnvoyService ensures that an Envoy Service exists for the given contour.
 func EnsureEnvoyService(ctx context.Context, cli client.Client, contour *model.Contour) error {
+	des := DesiredEnvoyService(contour)
+	gateway := &gatewayapi_v1.Gateway{}
+	// Query gateway if it exists add owner reference
+	if err := cli.Get(ctx, client.ObjectKey{Namespace: contour.Namespace, Name: contour.Name}, gateway); !errors.IsNotFound(err) {
+		blockOwner := true
+		des.OwnerReferences = append(des.OwnerReferences, meta_v1.OwnerReference{
+			APIVersion:         gateway.APIVersion,
+			Kind:               gateway.Kind,
+			Name:               gateway.GetName(),
+			UID:                gateway.GetUID(),
+			BlockOwnerDeletion: &blockOwner,
+		})
+	}
+
 	// Enclose contour.
 	updater := func(ctx context.Context, cli client.Client, current, desired *core_v1.Service) error {
 		return updateEnvoyServiceIfNeeded(ctx, cli, contour, current, desired)
 	}
 
-	return objects.EnsureObject(ctx, cli, DesiredEnvoyService(contour), updater, &core_v1.Service{})
+	return objects.EnsureObject(ctx, cli, des, updater, &core_v1.Service{})
 }
 
 // EnsureContourServiceDeleted ensures that a Contour Service for the

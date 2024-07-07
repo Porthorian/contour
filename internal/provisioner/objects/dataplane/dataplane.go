@@ -20,11 +20,13 @@ import (
 
 	apps_v1 "k8s.io/api/apps/v1"
 	core_v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapi_v1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/projectcontour/contour/internal/provisioner/equality"
 	"github.com/projectcontour/contour/internal/provisioner/labels"
@@ -76,10 +78,24 @@ var defContainerResources = core_v1.ResourceRequirements{
 
 // EnsureDataPlane ensures an Envoy data plane (daemonset or deployment) exists for the given contour.
 func EnsureDataPlane(ctx context.Context, cli client.Client, contour *model.Contour, contourImage, envoyImage string) error {
+	gateway := &gatewayapi_v1.Gateway{}
+	ownerReference := meta_v1.OwnerReference{}
+	// Query gateway if it exists add owner reference
+	if err := cli.Get(ctx, client.ObjectKey{Namespace: contour.Namespace, Name: contour.Name}, gateway); !errors.IsNotFound(err) {
+		blockOwner := true
+		ownerReference = meta_v1.OwnerReference{
+			APIVersion:         gateway.APIVersion,
+			Kind:               gateway.Kind,
+			Name:               gateway.GetName(),
+			UID:                gateway.GetUID(),
+			BlockOwnerDeletion: &blockOwner,
+		}
+	}
 	switch contour.Spec.EnvoyWorkloadType {
 	// If a Deployment was specified, provision a Deployment.
 	case model.WorkloadTypeDeployment:
 		desired := desiredDeployment(contour, contourImage, envoyImage)
+		desired.OwnerReferences = append(desired.OwnerReferences, ownerReference)
 
 		updater := func(ctx context.Context, cli client.Client, current, desired *apps_v1.Deployment) error {
 			differ := equality.DeploymentSelectorsDiffer(current, desired)
@@ -95,7 +111,7 @@ func EnsureDataPlane(ctx context.Context, cli client.Client, contour *model.Cont
 	// The default workload type is a DaemonSet.
 	default:
 		desired := DesiredDaemonSet(contour, contourImage, envoyImage)
-
+		desired.OwnerReferences = append(desired.OwnerReferences, ownerReference)
 		updater := func(ctx context.Context, cli client.Client, current, desired *apps_v1.DaemonSet) error {
 			differ := equality.DaemonSetSelectorsDiffer(current, desired)
 			if differ {

@@ -17,8 +17,10 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/errors"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapi_v1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	contour_v1alpha1 "github.com/projectcontour/contour/apis/projectcontour/v1alpha1"
 	"github.com/projectcontour/contour/internal/provisioner/model"
@@ -27,12 +29,27 @@ import (
 
 // EnsureContourConfig ensures that a ContourConfiguration exists for the given contour.
 func EnsureContourConfig(ctx context.Context, cli client.Client, contour *model.Contour) error {
+	gateway := &gatewayapi_v1.Gateway{}
+	ownerReference := meta_v1.OwnerReference{}
+	// Query gateway if it exists add owner reference
+	if err := cli.Get(ctx, client.ObjectKey{Namespace: contour.Namespace, Name: contour.Name}, gateway); !errors.IsNotFound(err) {
+		blockOwner := true
+		ownerReference = meta_v1.OwnerReference{
+			APIVersion:         gateway.APIVersion,
+			Kind:               gateway.Kind,
+			Name:               gateway.GetName(),
+			UID:                gateway.GetUID(),
+			BlockOwnerDeletion: &blockOwner,
+		}
+	}
+
 	desired := &contour_v1alpha1.ContourConfiguration{
 		ObjectMeta: meta_v1.ObjectMeta{
-			Namespace:   contour.Namespace,
-			Name:        contour.ContourConfigurationName(),
-			Labels:      contour.CommonLabels(),
-			Annotations: contour.CommonAnnotations(),
+			Namespace:       contour.Namespace,
+			Name:            contour.ContourConfigurationName(),
+			Labels:          contour.CommonLabels(),
+			Annotations:     contour.CommonAnnotations(),
+			OwnerReferences: []meta_v1.OwnerReference{ownerReference},
 		},
 	}
 
